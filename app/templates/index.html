@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>校园活动与场地调度系统</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <script type="module" src="{{ url_for('static', filename='scheduler.js') }}"></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">跳至主要内容</a>
+  <header class="topbar" id="topbar"></header>
+  <div class="shell" id="shell">
+    <aside class="sidebar" id="sidebar" aria-label="侧栏"></aside>
+    <main id="content" tabindex="-1"><p class="subhead" role="status">正在载入系统…</p></main>
+  </div>
+  <main id="login" class="login" tabindex="-1" hidden></main>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+  <div class="toast" role="status" id="toast" hidden></div>
+</body>
+</html>
