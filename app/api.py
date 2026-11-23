@@ -12,7 +12,6 @@ from app.services import booking_service as booking
 from app.services import equipment_service as equipment
 from app.services import venue_service as venues
 
-
 api = Blueprint("api", __name__, url_prefix="/api")
 
 

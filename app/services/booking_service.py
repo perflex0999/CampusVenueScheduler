@@ -1,4 +1,8 @@
+from __future__ import annotations
+
+import sqlite3
 from datetime import datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 from app.database import transaction
@@ -7,32 +11,31 @@ from app.schemas import ApiError, booking_input, now, period, text, timestamp
 from app.services.equipment_service import validate_items
 from app.services.venue_service import find_venue, overlapping_lock, overlapping_reservation
 
-
 RESERVATION_QUERY = """
 SELECT r.*, v.venue_code, u.username, u.real_name, u.department
 FROM reservations r JOIN venues v ON v.id = r.venue_id JOIN users u ON u.id = r.user_id
 """
 
 
-def find_reservation(db, reservation_id):
+def find_reservation(db: sqlite3.Connection, reservation_id: int) -> sqlite3.Row:
     row = db.execute(RESERVATION_QUERY + " WHERE r.id = ?", (reservation_id,)).fetchone()
     if row is None:
         raise ApiError("申请单不存在。", 404)
     return row
 
 
-def reviewer_status(user):
+def reviewer_status(user: sqlite3.Row) -> Status:
     return Status.PENDING_ADVISOR if user["role"] == Role.ADVISOR else Status.PENDING_VENUE
 
 
-def can_review(user, row):
+def can_review(user: sqlite3.Row, row: sqlite3.Row) -> bool:
     return (
         user["role"] in (Role.ADVISOR, Role.MANAGER) and row["status"] == reviewer_status(user)
         and (user["role"] == Role.MANAGER or user["department"] == row["department"])
     )
 
 
-def can_cancel(user, row):
+def can_cancel(user: sqlite3.Row, row: sqlite3.Row) -> bool:
     if row["user_id"] != user["id"] and user["role"] not in (Role.MANAGER, Role.ADMIN):
         return False
     starts = start_datetime(row)
@@ -41,32 +44,32 @@ def can_cancel(user, row):
     return row["status"] in (*PENDING, Status.APPROVED) and starts > current and starts - current >= cutoff
 
 
-def start_datetime(row):
+def start_datetime(row: sqlite3.Row) -> datetime:
     return datetime.fromisoformat(f"{row['reserve_date']}T{row['start_time']}")
 
 
-def audit_view(row):
+def audit_view(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "action": row["action"], "title": AUDIT_LABELS[row["action"]], "by": row["real_name"],
         "at": row["created_at"], "comment": row["comment"], "code": row["reservation_code"],
     }
 
 
-def audit_entries(db, reservation_id=None):
+def audit_entries(db: sqlite3.Connection, reservation_id: int | None = None) -> list[dict[str, Any]]:
     sql = "SELECT a.*, u.real_name FROM audit_logs a JOIN users u ON a.operator_id = u.id"
     if reservation_id is None:
         return [audit_view(row) for row in db.execute(sql + " ORDER BY a.created_at DESC, a.id DESC")]
     return [audit_view(row) for row in db.execute(sql + " WHERE a.reservation_id = ? ORDER BY a.id", (reservation_id,))]
 
 
-def equipment_for(db, reservation_id):
+def equipment_for(db: sqlite3.Connection, reservation_id: int) -> dict[str, int]:
     return {row["equipment_code"]: row["quantity"] for row in db.execute(
         """SELECT e.equipment_code, re.quantity FROM reservation_equipments re
            JOIN equipments e ON e.id = re.equipment_id WHERE re.reservation_id = ?""", (reservation_id,),
     )}
 
 
-def reservation_view(db, row, user, *, detailed=False):
+def reservation_view(db: sqlite3.Connection, row: sqlite3.Row, user: sqlite3.Row, *, detailed: bool = False) -> dict[str, Any]:
     result = {
         "id": row["id"], "code": row["reservation_code"], "venue": row["venue_code"],
         "title": row["title"], "date": row["reserve_date"], "start": row["start_time"], "end": row["end_time"],
@@ -91,12 +94,12 @@ def reservation_view(db, row, user, *, detailed=False):
     return result
 
 
-def list_own(db, user):
+def list_own(db: sqlite3.Connection, user: sqlite3.Row) -> list[dict[str, Any]]:
     rows = db.execute(RESERVATION_QUERY + " WHERE r.user_id = ? ORDER BY r.created_at DESC, r.id DESC", (user["id"],))
     return [reservation_view(db, row, user, detailed=True) for row in rows]
 
 
-def list_pending(db, user, sort="created"):
+def list_pending(db: sqlite3.Connection, user: sqlite3.Row, sort: str = "created") -> list[dict[str, Any]]:
     order = "r.reserve_date, r.start_time, r.id" if sort == "date" else "r.created_at DESC, r.id DESC"
     rows = db.execute(
         RESERVATION_QUERY + " WHERE r.status = ? AND (? OR u.department = ?) ORDER BY " + order,
@@ -105,7 +108,7 @@ def list_pending(db, user, sort="created"):
     return [reservation_view(db, row, user, detailed=True) for row in rows]
 
 
-def list_schedule(db, user, venue_id=None, day=None):
+def list_schedule(db: sqlite3.Connection, user: sqlite3.Row, venue_id: int | None = None, day: str | None = None) -> list[dict[str, Any]]:
     rows = db.execute(
         RESERVATION_QUERY + """
         WHERE r.status IN (?, ?, ?) AND (? IS NULL OR r.venue_id = ?) AND (? IS NULL OR r.reserve_date = ?)
@@ -116,7 +119,8 @@ def list_schedule(db, user, venue_id=None, day=None):
     return [reservation_view(db, row, user) for row in rows]
 
 
-def validate_slot(db, venue, day, start, end, people, exclude=None):
+def validate_slot(db: sqlite3.Connection, venue: sqlite3.Row, day: str, start: str, end: str,
+                  people: int, exclude: int | None = None) -> None:
     if venue["status"] != "AVAILABLE":
         raise ApiError("该场地处于维护状态，请选择其他场地。", 409, field="venue")
     if people > venue["capacity"]:
@@ -131,7 +135,8 @@ def validate_slot(db, venue, day, start, end, people, exclude=None):
         raise ApiError(f"时段冲突：{conflict['title']}（{conflict['start_time']}–{conflict['end_time']}）。", 409)
 
 
-def save_reservation(db, user, data, reservation_id=None):
+def save_reservation(db: sqlite3.Connection, user: sqlite3.Row, data: dict[str, Any],
+                     reservation_id: int | None = None) -> dict[str, Any]:
     draft = data.get("draft", False)
     if type(draft) is not bool:
         raise ApiError("申请操作不正确。")
@@ -177,7 +182,7 @@ def save_reservation(db, user, data, reservation_id=None):
         return reservation_view(db, row, user, detailed=True)
 
 
-def delete_draft(db, user, reservation_id):
+def delete_draft(db: sqlite3.Connection, user: sqlite3.Row, reservation_id: int) -> None:
     with transaction(db):
         row = find_reservation(db, reservation_id)
         if row["user_id"] != user["id"]:
@@ -188,7 +193,7 @@ def delete_draft(db, user, reservation_id):
         db.execute("DELETE FROM reservations WHERE id = ?", (reservation_id,))
 
 
-def review(db, user, reservation_id, data):
+def review(db: sqlite3.Connection, user: sqlite3.Row, reservation_id: int, data: dict[str, Any]) -> dict[str, Any]:
     decision = data.get("decision")
     if decision not in ("APPROVED", "REJECTED"):
         raise ApiError("请选择审批结果。")
@@ -219,7 +224,7 @@ def review(db, user, reservation_id, data):
         return {"status": status, "message": AUDIT_LABELS[action] + "。"}
 
 
-def cancel(db, user, reservation_id):
+def cancel(db: sqlite3.Connection, user: sqlite3.Row, reservation_id: int) -> None:
     with transaction(db):
         row = find_reservation(db, reservation_id)
         if row["user_id"] != user["id"] and user["role"] not in (Role.MANAGER, Role.ADMIN):
@@ -233,7 +238,7 @@ def cancel(db, user, reservation_id):
         append_audit(db, "CANCEL", user["id"], current, row)
 
 
-def reschedule(db, user, reservation_id, data):
+def reschedule(db: sqlite3.Connection, user: sqlite3.Row, reservation_id: int, data: dict[str, Any]) -> None:
     day, start, end = period(data, booking=True)
     comment = text(data, "comment", "调整原因", required=False, limit=500)
     code = text(data, "venue", "场地编号", limit=32)
@@ -255,7 +260,7 @@ def reschedule(db, user, reservation_id, data):
         append_audit(db, "RESCHEDULE", user["id"], current, row, info)
 
 
-def finish_expired(db):
+def finish_expired(db: sqlite3.Connection) -> None:
     current = timestamp()
     expired = "status = ? AND reserve_date || ' ' || end_time || ':00' <= ?"
     args = (Status.APPROVED, current)

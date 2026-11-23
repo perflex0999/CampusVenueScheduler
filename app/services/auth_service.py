@@ -1,6 +1,11 @@
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Callable
 from datetime import timedelta
 from functools import wraps
 from secrets import token_urlsafe
+from typing import Any
 
 from flask import g, session
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -9,23 +14,22 @@ from app.database import get_db, transaction
 from app.models import Role, append_audit
 from app.schemas import ApiError, flag, now, password_value, text, timestamp
 
-
 PASSWORD_METHOD = "pbkdf2:sha256:600000"
 DUMMY_PASSWORD = generate_password_hash(token_urlsafe(), method=PASSWORD_METHOD)
 
 
-def password_hash(password):
+def password_hash(password: str) -> str:
     return generate_password_hash(password, method=PASSWORD_METHOD)
 
 
-def public_user(user):
+def public_user(user: sqlite3.Row) -> dict[str, Any]:
     return {
         "id": user["username"], "name": user["real_name"], "role": user["role"],
         "department": user["department"], "enabled": bool(user["is_active"]),
     }
 
 
-def current_user():
+def current_user() -> sqlite3.Row | None:
     if "user" not in g:
         g.user = None
         uid, version = session.get("uid"), session.get("version")
@@ -38,10 +42,10 @@ def current_user():
     return g.user
 
 
-def require_user(*roles):
-    def decorator(view):
+def require_user(*roles: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def decorator(view: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(view)
-        def authorized(*args, **kwargs):
+        def authorized(*args: Any, **kwargs: Any) -> Any:
             user = current_user()
             if user is None:
                 raise ApiError("请先登录。", 401)
@@ -54,7 +58,7 @@ def require_user(*roles):
     return decorator
 
 
-def login(db, data):
+def login(db: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
     username = text(data, "username", "学号或工号", limit=32)
     password = data.get("password")
     if not isinstance(password, str) or not password or len(password) > 128:
@@ -86,13 +90,13 @@ def login(db, data):
     return public_user(user)
 
 
-def start_session(uid, version):
+def start_session(uid: int, version: str) -> None:
     session.clear()
     session.permanent = True
     session.update(uid=uid, version=version)
 
 
-def update_profile(db, user, data):
+def update_profile(db: sqlite3.Connection, user: sqlite3.Row, data: dict[str, Any]) -> None:
     phone = text(data, "phone", "联系电话", required=False, limit=20)
     email = text(data, "email", "电子邮箱", required=False, limit=64)
     if email and (email.count("@") != 1 or any(char.isspace() for char in email) or not all(email.split("@"))):
@@ -101,7 +105,7 @@ def update_profile(db, user, data):
         db.execute("UPDATE users SET phone = ?, email = ? WHERE id = ?", (phone, email, user["id"]))
 
 
-def change_password(db, user, data):
+def change_password(db: sqlite3.Connection, user: sqlite3.Row, data: dict[str, Any]) -> None:
     password = password_value(data)
     if password != data.get("confirm"):
         raise ApiError("两次输入的新密码不一致。", field="confirm")
@@ -120,7 +124,7 @@ def change_password(db, user, data):
     start_session(user["id"], version)
 
 
-def update_user(db, operator, username, data):
+def update_user(db: sqlite3.Connection, operator: sqlite3.Row, username: str, data: dict[str, Any]) -> None:
     role = text(data, "role", "角色")
     if role not in Role:
         raise ApiError("请选择有效角色。", field="role")

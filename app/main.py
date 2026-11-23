@@ -16,6 +16,7 @@ def create_app(database=DATABASE):
     app.config.update(
         DATABASE=database, PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+        MAX_CONTENT_LENGTH=1024 * 1024,
     )
     with closing(connect(database)) as db:
         initialize_schema(db)
@@ -39,7 +40,9 @@ def create_app(database=DATABASE):
     def api_error(error):
         return {"message": str(error), "field": error.field}, error.status
 
+    @app.errorhandler(Exception)
+    def handle_unexpected(error):
+        app.logger.error("未处理的服务器错误: %s", error, exc_info=error)
+        return {"message": "服务器内部错误，请稍后重试。"}, 500
+
     return app
-
-
-app = create_app()

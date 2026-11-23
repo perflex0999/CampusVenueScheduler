@@ -7,7 +7,6 @@ from app.models import Status, append_audit
 from app.schemas import now, timestamp
 from app.services.auth_service import password_hash
 
-
 USERS = (
     ("student_01", "李晓峰", "student", "计算机学院"),
     ("student_02", "张嘉仪", "student", "计算机学院"),

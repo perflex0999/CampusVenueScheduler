@@ -1,4 +1,8 @@
+from __future__ import annotations
+
+import sqlite3
 from math import ceil
+from typing import Any
 
 from app.config import DEFAULT_PAGE_SIZE
 from app.database import transaction
@@ -6,7 +10,7 @@ from app.models import OCCUPYING, append_audit
 from app.schemas import ApiError, flag, integer, period, reference_code, text, time_value, timestamp
 
 
-def venue_view(row):
+def venue_view(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "id": row["venue_code"], "name": row["name"], "building": row["building"],
         "type": row["venue_type"], "capacity": row["capacity"], "setup": row["equipment_desc"],
@@ -14,9 +18,9 @@ def venue_view(row):
     }
 
 
-def list_venues(db, filters, *, paginate=True):
-    clauses = []
-    parameters = []
+def list_venues(db: sqlite3.Connection, filters: dict[str, Any], *, paginate: bool = True) -> dict[str, Any] | list[dict[str, Any]]:
+    clauses: list[str] = []
+    parameters: list[Any] = []
     query = text(filters, "q", "搜索词", required=False)
     if query:
         clauses.append("instr(lower(name || ' ' || venue_code), lower(?)) > 0")
@@ -40,7 +44,7 @@ def list_venues(db, filters, *, paginate=True):
     return {"items": [venue_view(row) for row in rows], "total": count, "page": page, "pages": ceil(count / limit)}
 
 
-def find_venue(db, code):
+def find_venue(db: sqlite3.Connection, code: str) -> sqlite3.Row:
     row = db.execute(
         """SELECT * FROM venues WHERE venue_code = ? COLLATE NOCASE OR CAST(id AS TEXT) = ?
            ORDER BY (venue_code = ? COLLATE NOCASE) DESC LIMIT 1""", (code, code, code),
@@ -50,7 +54,7 @@ def find_venue(db, code):
     return row
 
 
-def lock_views(db, venue_id=None, day=None):
+def lock_views(db: sqlite3.Connection, venue_id: int | None = None, day: str | None = None) -> list[dict[str, Any]]:
     rows = db.execute(
         """SELECT l.*, v.venue_code FROM venue_locks l JOIN venues v ON v.id = l.venue_id
            WHERE (? IS NULL OR l.venue_id = ?) AND (? IS NULL OR l.lock_date = ?)
@@ -63,7 +67,8 @@ def lock_views(db, venue_id=None, day=None):
     } for row in rows]
 
 
-def overlapping_reservation(db, venue_id, day, start, end, exclude=None):
+def overlapping_reservation(db: sqlite3.Connection, venue_id: int, day: str, start: str, end: str,
+                            exclude: int | None = None) -> sqlite3.Row | None:
     return db.execute(
         """SELECT title, start_time, end_time FROM reservations
            WHERE venue_id = ? AND reserve_date = ? AND status IN (?, ?) AND start_time < ? AND ? < end_time
@@ -72,7 +77,7 @@ def overlapping_reservation(db, venue_id, day, start, end, exclude=None):
     ).fetchone()
 
 
-def overlapping_lock(db, venue_id, day, start, end):
+def overlapping_lock(db: sqlite3.Connection, venue_id: int, day: str, start: str, end: str) -> sqlite3.Row | None:
     return db.execute(
         """SELECT reason AS title, start_time, end_time FROM venue_locks
            WHERE venue_id = ? AND lock_date = ? AND start_time < ? AND ? < end_time ORDER BY start_time, id LIMIT 1""",
@@ -80,7 +85,7 @@ def overlapping_lock(db, venue_id, day, start, end):
     ).fetchone()
 
 
-def save_venue(db, operator, data, code=None):
+def save_venue(db: sqlite3.Connection, operator: sqlite3.Row, data: dict[str, Any], code: str | None = None) -> None:
     values = (
         text(data, "name", "场地名称", limit=64), text(data, "building", "楼宇", limit=32),
         integer(data.get("capacity"), "场地容量", minimum=1, field="capacity"),
@@ -110,7 +115,7 @@ def save_venue(db, operator, data, code=None):
         append_audit(db, "SAVE_VENUE", operator["id"], timestamp(), comment=code)
 
 
-def save_lock(db, operator, data):
+def save_lock(db: sqlite3.Connection, operator: sqlite3.Row, data: dict[str, Any]) -> None:
     day, start, end = period(data)
     if f"{day} {start}:00" <= timestamp():
         raise ApiError("锁定时段须晚于当前时间。", field="start")
@@ -129,7 +134,7 @@ def save_lock(db, operator, data):
         append_audit(db, "LOCK_VENUE", operator["id"], timestamp(), comment=f"{venue['venue_code']} {day} {start}–{end} {reason}")
 
 
-def remove_lock(db, operator, lock_id):
+def remove_lock(db: sqlite3.Connection, operator: sqlite3.Row, lock_id: int) -> None:
     with transaction(db):
         lock = db.execute(
             "SELECT l.*, v.venue_code FROM venue_locks l JOIN venues v ON l.venue_id = v.id WHERE l.id = ?",
