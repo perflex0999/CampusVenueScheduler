@@ -1,103 +1,95 @@
-# 校园多功能活动与场地协同调度系统
+# 校园多功能活动与场地协同调度系统（CampusVenueScheduler）
 
-**CampusVenueScheduler** —— 一个零外部依赖、开箱即用的校园活动与场地协同调度系统。
+本项目面向高校学生社团、学院及场馆管理部门的日常活动组织需求，实现活动申报、场地预约、时间冲突检测、配套物资借调与多级审批的线上协同管理。系统采用轻量单体架构，无需外部数据库中间件，本地即可独立部署运行。
 
-用「单个 SQLite 文件 + 单个 Flask 进程」完整覆盖 `活动申报 → 场地预约 → 物资借调 → 两级审批 → 排期日历` 的闭环，以原生 JavaScript 单页应用交付：无需 Docker、无需独立数据库，两条命令即可本地运行。
+---
 
-[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask)](https://flask.palletsprojects.com/)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+## 1. 主要功能
 
-## ✨ 功能特性
+1. **认证与权限管理**：支持学生、指导教师、场馆管理员、系统管理员四类角色鉴权、登录失败锁定及账号维护。
+2. **场地与排期管理**：支持多条件检索、排期日历可视化、场馆维护时段锁定及基于半开区间的时间冲突检测。
+3. **活动申报与两级审批**：支持在线提交、草稿保存、改期与取消，经院系指导教师初审与场馆管理员终审流转并记录驳回原因。
+4. **物资借调与审计运维**：支持配套物资按时段动态核算库存与自动占用/释放、流程操作审计日志及演示数据重置。
 
-- **活动申报**：学生/社团在线提交活动方案（草稿暂存 / 正式提交）。
-- **场地预约**：按场地容量、开放时段校验，半开区间 `[start, end)` 冲突检测，背靠背时段互不冲突。
-- **物资借调**：随预约附带设备借用，按「已批准占用」实时计算可借数量与单次限借。
-- **两级审批**：指导教师初审（限本学院）→ 场地管理员终审，状态机 `草稿 → 待初审 → 待终审 → 已批准`。
-- **排期日历**：按场地/日期查看占用、锁定与预约明细。
-- **场地与物资管理**：场地增改、维护锁定/解锁，物资台账与库存。
-- **账号与安全**：四类角色（学生/指导教师/场地管理员/系统管理员），会话认证 + `auth_version` 即时失效，连续 5 次登录失败锁定 5 分钟。
-- **审计留痕**：全量操作审计日志，管理员可追溯与一键重置演示数据。
+---
 
-## 🚀 快速开始
+## 2. 技术栈与目录结构
 
-```bash
-# 1. 安装依赖（仅 Flask + Werkzeug）
-python -m pip install -r requirements.txt
+- **后端**：Python 3.12+、Flask 3.1、SQLite 3（WAL 模式）
+- **前端**：原生 HTML5 / CSS3 / JavaScript 单页应用（无前端构建依赖）
 
-# 2. 启动服务（首次启动自动建库并灌入演示数据）
-python -m scripts.run_server
+```text
+CampusVenueScheduler/
+├── app/
+│   ├── main.py              # Flask 应用工厂与错误处理
+│   ├── api.py               # RESTful API 路由蓝图 (/api)
+│   ├── config.py            # 路径与常量配置
+│   ├── database.py          # SQLite 连接与事务封装
+│   ├── models.py            # 数据表 Schema 与状态/角色枚举
+│   ├── schemas.py           # 参数校验与时间区间解析
+│   ├── seed.py              # 演示基准数据初始化
+│   ├── services/            # 认证、场地、预约、物资业务逻辑
+│   ├── static/              # 前端静态资源 (scheduler.js / styles.css)
+│   └── templates/           # 页面外壳 (index.html)
+├── docs/                    # 项目设计文档与操作手册
+├── scripts/
+│   ├── init_db.py           # 数据库初始化/重置脚本
+│   └── run_server.py        # 本地服务启动脚本
+├── tests/                   # 后端基础功能测试脚本 (pytest)
+├── requirements.txt         # 运行依赖清单
+└── README.md
 ```
 
-浏览器访问 **http://127.0.0.1:8000** 即可登录。如需手动重置演示数据：
+---
+
+## 3. 文档索引
+
+- [软件需求规格说明书 (SRS)](docs/01_需求规格说明.md)：系统功能范围、角色权限、状态机与业务规则约束。
+- [技术架构与数据库设计](docs/02_技术与数据库设计.md)：分层架构、6 张核心数据表 DDL、半开区间冲突检测与物资库存算法。
+- [部署与用户操作手册](docs/03_部署与用户手册.md)：本地部署步骤、预设演示账号清单及典型业务场景演练。
+- [API 接口参考](docs/api.md)：后端 `/api` 接口路径、请求参数与权限约定。
+
+---
+
+## 4. 快速启动
+
+### 4.1 安装依赖
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+### 4.2 初始化数据库与演示数据
 
 ```bash
 python -m scripts.init_db
 ```
 
-## 🐳 Docker
+执行后将在 `var/` 目录生成 `campus_scheduler.sqlite3`，并写入 5 个预设账号、12 处场地、8 类物资与 18 条示例预约。
+
+### 4.3 启动本地服务
 
 ```bash
-docker build -t campus-venue-scheduler .
-docker run -p 8000:8000 -v campus-venue-data:/app/var campus-venue-scheduler
+python -m scripts.run_server
 ```
 
-访问 http://localhost:8000。镜像监听 `0.0.0.0:8000`，SQLite 数据持久化于命名卷 `campus-venue-data`。
+启动后浏览器访问：`http://127.0.0.1:8000`
 
-## 👤 演示账号
-
-| 账号 | 密码 | 角色 |
-|---|---|---|
-| `student_01` / `student_02` | `123456` | 学生 |
-| `advisor_01` | `123456` | 指导教师 |
-| `manager_01` | `123456` | 场地管理员 |
-| `admin` | `admin123` | 系统管理员 |
-
-## 🏗️ 架构概览
-
-后端为「分层单体」：HTTP 层薄转发，业务逻辑集中在 service 层，数据访问走裸 SQL + 显式事务。
-
-```text
-浏览器（原生 JS 单页应用，hash 路由）
-        │  JSON /api/*
-        ▼
-app/api.py          Flask Blueprint，路由与鉴权装饰器（薄转发）
-        ▼
-app/services/       业务逻辑：auth / booking / venue / equipment
-        ▼
-app/schemas.py      请求校验（ApiError 统一错误）
-app/database.py     SQLite 连接 + transaction 上下文管理器
-app/models.py       全量 schema（裸 SQL）+ 枚举 + 审计助手
-```
-
-- **数据**：SQLite（WAL 模式），`var/campus_scheduler.sqlite3`，无 ORM。
-- **认证**：Flask 服务端 session + `users.auth_version` 失效机制。
-- **前端**：原生 JS 单文件 SPA，无框架、无构建步骤。
-
-## 📖 文档
-
-| 文档 | 说明 |
-|---|---|
-| [快速开始](docs/quickstart.md) | 安装、启动、演示账号、测试命令 |
-| [API 参考](docs/api.md) | 全部 REST 端点与权限说明 |
-| [需求规格说明](docs/01_需求规格说明.md) | 业务功能与状态流转 |
-| [技术与数据库设计](docs/02_技术与数据库设计.md) | 技术选型与表结构 |
-| [部署与用户手册](docs/03_部署与用户手册.md) | 部署与使用指南 |
-| [开发历程规范](docs/development-workflow.md) | 分支模型、提交规范、版本与发布闭环 |
-| [架构决策记录](docs/adr/) | 关键技术决策（ADR） |
-
-## 🧪 测试
+### 4.4 运行后端基础测试（可选）
 
 ```bash
-python -m pip install -r requirements-dev.txt
-python -m pytest                                  # 运行测试
-python -m pytest --cov=app --cov-report=term-missing   # 含覆盖率（目标 ≥ 80%）
+python -m pip install pytest
+python -m pytest
 ```
 
-## 🤝 贡献
+---
 
-欢迎提交 Issue 与 Pull Request。请先阅读 [贡献指南](CONTRIBUTING.md) 与 [行为准则](CODE_OF_CONDUCT.md)。
+## 5. 预设演示账号
 
-## 📄 License
-
-[MIT](LICENSE) © The CampusVenueScheduler Authors
+| 角色 | 账号 | 密码 | 说明 |
+| :--- | :--- | :--- | :--- |
+| 学生（申请人） | `student_01` | `123456` | 计算机学院，发起活动与场地预约申请 |
+| 学生（申请人） | `student_02` | `123456` | 文艺社团，用于验证多用户与时段冲突场景 |
+| 指导教师（初审） | `advisor_01` | `123456` | 计算机学院团委指导教师，负责一级初审 |
+| 场馆管理员（终审） | `manager_01` | `123456` | 负责场地终审、排期调整、维护锁定与物资管理 |
+| 系统管理员 | `admin` | `admin123` | 负责账号管理、操作审计日志查询与演示数据重置 |
